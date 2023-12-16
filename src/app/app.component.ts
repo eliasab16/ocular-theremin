@@ -8,6 +8,7 @@ import * as handTrack from 'handtrackjs';
 })
 export class AppComponent implements OnInit, OnDestroy {
   title = 'digital_theremin';
+  // Video properties
   canvas: HTMLCanvasElement | null = null;
   context: CanvasRenderingContext2D | null = null;
   videoRunning = false;
@@ -16,8 +17,11 @@ export class AppComponent implements OnInit, OnDestroy {
   allowedGestures = [1, 2, 4] // 1: open, 2: closed, 4: point 
   videoWidth = 800;
   videoHeight = this.videoWidth * (3/4);
-  centerX = this.videoWidth / 2;
-  centerY = this.videoHeight / 2;
+
+  // Audio properties
+  oscillator!: OscillatorNode; // controls the frequency
+  gainNode!: GainNode; // controls the volume
+  audioContext!: AudioContext;
 
   modelParams = {
     flipHorizontal: true,
@@ -43,6 +47,16 @@ export class AppComponent implements OnInit, OnDestroy {
     this.video!.style.width = this.videoWidth + 'px';
 
     handTrack.startVideo(this.video).then((status: any) => {
+      this.audioContext = new AudioContext();
+      this.gainNode = this.audioContext.createGain();
+      this.oscillator = this.audioContext.createOscillator();
+
+      this.oscillator.connect(this.gainNode);
+      this.gainNode.connect(this.audioContext.destination); 
+
+      this.oscillator.frequency.value = 0;
+      this.oscillator.start();
+
       if (status) {
         this.videoRunning = true;
         console.log(status);
@@ -55,6 +69,8 @@ export class AppComponent implements OnInit, OnDestroy {
 
   stopPlaying() {
     this.videoRunning = false;
+    this.oscillator!.stop();
+    this.oscillator!.disconnect();
     handTrack.stopVideo(this.video);
   }
 
@@ -65,7 +81,6 @@ export class AppComponent implements OnInit, OnDestroy {
           return pred;
         }
       })
-      // console.log(filteredPreds[0]);
       this.playSound(filteredPreds[0]);
 
       this.model.renderPredictions(filteredPreds, this.canvas, this.context, video);
@@ -79,14 +94,21 @@ export class AppComponent implements OnInit, OnDestroy {
     if (!prediction) {
       return;
     }
-    const predCenterX = Number(prediction.bbox[0] + (prediction.bbox[2]/2));
-    const predCenterY = Number(prediction.bbox[1] + (prediction.bbox[3]/2));
+    if (prediction.class == 2) {
+      this.oscillator!.frequency.value = 0;
+    } else {
+      const freqFactor = prediction.class == 1 ? 1 : 0.5;
+      const predCenterX = Number(prediction.bbox[0] + (prediction.bbox[2]/2));
+      const predCenterY = Number(prediction.bbox[1] + (prediction.bbox[3]/2));
 
-    const xDiff = predCenterX - this.centerX;
-    const yDiff = predCenterY - this.centerY;
+      const xDist = (predCenterX/this.videoWidth)
+      const yDist = 1-(predCenterY/this.videoHeight)
 
-    console.log(`x diff`, xDiff);
-    console.log(`y diff`, yDiff);
+      const freq = (200 + 500 * xDist) * freqFactor;
+      console.log(yDist, freq);
+      this.oscillator!.frequency.value = freq;
+      this.gainNode.gain.value = yDist;
+    }
   }
 
   async ngOnDestroy() {
